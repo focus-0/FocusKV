@@ -1,0 +1,12 @@
+# Use C++20
+build --cxxopt='-std=c++20'
+build --host_cxxopt='-std=c++20'
+
+# Optimization flags for release builds
+build:release --copt='-O3'
+build:release --copt='-DNDEBUG'
+
+# Warning flags (Treat warnings as errors to maintain code quality)
+build --copt='-Wall'
+build --copt='-Wextra'
+build --copt='-Werror'
