@@ -10,3 +10,10 @@ build:release --copt='-DNDEBUG'
 build --copt='-Wall'
 build --copt='-Wextra'
 build --copt='-Werror'
+
+cc_library(
+    name = "arena",
+    srcs = ["arena.cc"],
+    hdrs = ["arena.h"],
+    visibility = ["//visibility:public"],
+)
