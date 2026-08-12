@@ -8,6 +8,7 @@
 
   Mocking (using gMock): If your code needs to talk to a database or API, you "fake" (mock) that connection so your test runs instantly without internet.
 4. .cc is same as .cpp 
+
 5. How does a LSM Tree work ? Components: RAM and HardDisk. Keep Data in sorted format in RAM and write-ahead format in Disk. Once RAM is filled, create a binder out of it and store in Disk. After sometime you will have a lot of binders, so we perform compaction. Note: The WAL is cleared once Binder is created.
 
 6. Types of Pointers: 
@@ -23,15 +24,31 @@ void*: When you need to point to memory of unknown type (e.g., low-level memory 
 11. #pragma once Its job is to ensure that the header file is included only once during the compilation of a single file, even if you include it multiple times in different places. We can do the same by using # ifndef headerfile and #define headerfile with #endif at last
 12. char* points to a raw block of memory of 8 bits= 1byte.
 
-13. What is the project in my own language: It consists of 3 parts, building a storage engine, post this we will convert our storage engine into a server. After this we will perform raft concensus. After this we add observability and benchmarking.
+13. What is the project in my own language: It consists of 4 parts, building a storage engine, post this we will convert our storage engine into a server. After this we will perform raft concensus. After this we add observability and benchmarking.
 
 14. Header files are only to define the components, the working of the components is implemented in .cc files
 
 15. We used pointers and arithmetic instead of new and delete because they are expensive operations
 
 16. Why we use function.h and function.cc files ?: First all .cc  files are converted into .o files. A .o file is literally .c + .h written at its top and compiled. When a file is using a .h file it only puts placeholders and not the actual working of the .h file (which is in .cc file). This shows that .h files needs to be copied a lot of times but not its functioning. The functioning of the .h, the .cc file is compiled only once and used for everything. Post this what we realise is that all .o objects are then connected using a linker.
+
 17. Because the arena and skiplist are for fundamentally different purpose both are not implemented in the same way, what I mean by this is that Skiplist will be a template class, we can't write a .cc file for it, wihtout a datatype it's not possible to write to write a .cc file.
 Another question you might think is why not write a template .cc file. well that is not
 how stuff works. The .cc file must have a data type.
 
+18. Shallow Copy: Creates a new object, but inserts references to the items found in the original. If you change a nested object in the copy, it changes in the original too.
 
+Deep Copy: Creates a new object and recursively inserts copies of the items found in the original. The two objects are completely disconnected.
+
+18. Now CPP by default creates shallow copies which can affect the true data when using
+pointers hence when writing any class it is a good practice to disable the copy 
+constructor.
+
+19. Every out-of-class definition of a templated entity must re-declare its template parameters.
+
+20. The idea behind arena is pre-allocating memory, keep using it and destroy everything at once.
+Skiplist uses this arena to store its nodes. Instead of arena we could have used new/malloc but 
+that is not the optimal when making a database. Eventually we do we have to use new to talk with the OS
+but the strategy for preallocation reduces the frequency of new operation.
+
+21. In our code, skiplist is sorted wherease Arena is not.
