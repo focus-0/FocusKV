@@ -1,171 +1,84 @@
-# FocusKV — Distributed LSM Key-Value Storage Engine
+# FocusKV
 
-[![Build Status](https://img.shields.io/badge/build-passing-brightgreen.svg)]()
-[![Language](https://img.shields.io/badge/language-C%2B%2B17-blue.svg)]()
-[![Build System](https://img.shields.io/badge/build_system-Bazel-orange.svg)]()
-[![Architecture](https://img.shields.io/badge/architecture-LSM--Tree%20%7C%20Raft-red.svg)]()
+A minimal key-value store in C++17 (~2,200 LOC).
 
-**FocusKV** is a persistent, distributed key-value storage engine built from scratch in modern C++ (C++17/C++20). The system is engineered around a Log-Structured Merge (LSM) tree architecture optimized for high-velocity write workloads, crash-resilient storage, POSIX socket networking, and Raft distributed consensus.
+- **Storage:** WAL + MemTable + SSTable flush + on-disk manifest + bloom filters
+- **Network:** TCP text protocol (`SET`, `GET`, `DEL`)
+- **Deployment:** Independent nodes (no replication or consensus)
 
----
+Each node is a standalone server with its own on-disk database. You can run multiple nodes on different ports, but they do not share or replicate data.
 
-## 🏗️ System Architecture
+## Build
 
-```
-                               +-----------------------------+
-                               |     Client Application      |
-                               +--------------+--------------+
-                                              |
-                                    TCP Wire Protocol (SET/GET/DEL/TRACE)
-                                              v
-+-----------------------------------------------------------------------------------+
-| Subproject 2: Network Reactor (POSIX TCP Socket Server)                            |
-+-----------------------------------------------------------------------------------+
-                                              |
-                                     Quorum Replication
-                                              v
-+-----------------------------------------------------------------------------------+
-| Subproject 3: Distributed Consensus Layer (Raft Protocol)                          |
-| - Leader Election  |  Log Replication  |  Majority Quorum  |  Node Failover       |
-+-----------------------------------------------------------------------------------+
-                                              |
-                                      Apply State Transition
-                                              v
-+-----------------------------------------------------------------------------------+
-| Subproject 1: Core Storage Engine (LSM-Tree)                                      |
-|                                                                                   |
-|  +-------------------+      +-------------------+      +-----------------------+  |
-|  | MemTable          | ---> | WAL (Disk)        | ---> | SSTable (Level 0..N)  |  |
-|  | (SkipList+Arena)  |      | (Sequential Log)  |      | (Data Blocks + Index) |  |
-|  +-------------------+      +-------------------+      +-----------------------+  |
-|                                                                    ^              |
-|                                                          Background Compaction    |
-+-----------------------------------------------------------------------------------+
-                                              |
-                                      Execution Telemetry
-                                              v
-+-----------------------------------------------------------------------------------+
-| Subproject 4: Visibility & Benchmarking                                           |
-| - TraceGet (LSM Query Inspector)  |  db_bench (Throughput & Latency Suite)        |
-+-----------------------------------------------------------------------------------+
-```
-
----
-
-## 🚀 Core Subprojects
-
-### 1. Storage Engine Core ("The Ground Truth")
-- **MemTable (In-Memory Buffer):** Lock-free SkipList backing an in-memory buffer. Uses a custom **Arena Allocator** (4KB chunk pre-allocation) to bypass `malloc`/`new` overhead, eliminate memory fragmentation, and optimize CPU cache locality. Enforces manual `Ref()`/`Unref()` lifecycle tracking for concurrent snapshot safety during flushes.
-- **Write-Ahead Log (WAL):** Ensures durability (ACID) by sequentially writing write operations to disk before updating memory. Replays log records upon startup for instant crash recovery.
-- **Sorted String Tables (SSTables):** Immutable on-disk files organized into 4KB data blocks with an in-memory sparse index for fast binary search block lookups.
-- **Leveled Compaction:** Background multi-way merge sort worker that merges overlapping SSTables across level hierarchies ($L_0 \rightarrow L_N$), reclaiming deleted tombstones and bounding read amplification.
-
-### 2. Network Server ("The Scale")
-- Standard POSIX TCP socket server supporting concurrent client connections.
-- Text-based protocol parser supporting `SET <key> <val>`, `GET <key>`, `DEL <key>`, and `TRACE <key>`.
-
-### 3. Raft Distributed Consensus ("The Trust")
-- 3-node cluster consensus machine supporting randomized election timeouts (150ms–300ms), `RequestVote`, and `AppendEntries` RPCs.
-- Majority quorum commit: Writes are committed only after $\ge 2/3$ nodes acknowledge the write, ensuring data safety even if one node crashes.
-
-### 4. Visibility & Benchmarking ("The Placement Proof")
-- **`TraceGet` (LSM Query Inspector):** Exposes an internal query tracer returning per-stage execution telemetry (`MemTable` $\rightarrow$ `SSTables`) with microsecond-level latency breakdowns.
-- **`db_bench`:** Performance benchmarking utility measuring sequential/random write throughput (ops/sec), $p_{50}/p_{99}$ latency, and Write Amplification Factor (WAF).
-
----
-
-## 🎯 Key Design Decisions & Trade-offs
-
-| Engineering Choice | Alternative Considered | Why FocusKV Made This Choice |
-|---|---|---|
-| **LSM Tree** | B+ Tree | B+ Trees require in-place updates causing random disk I/O. LSM Trees convert random writes into sequential writes in memory first, making them dramatically faster for write-heavy workloads. |
-| **SkipList** | Red-Black Tree | Both achieve $O(\log N)$ search/insert time, but SkipLists avoid complex rebalancing rotations and are vastly simpler to make thread-safe without heavy mutex locks. |
-| **Arena Allocator** | System `malloc`/`new` | Frequent small allocations lead to heap fragmentation and OS kernel syscall overhead. Arena pre-allocates 4KB blocks in contiguous memory. |
-| **Raft Consensus** | Multi-Paxos | Paxos is notoriously complex to implement correctly. Raft provides formal safety guarantees with a understandable leader-driven consensus model. |
-
----
-
-## 📁 Codebase Layout
-
-```
-FocusKV/
-├── WORKSPACE
-├── MODULE.bazel                     # Modern Bazel dependency management
-├── BUILD                            # Root build targets (utils, arena, skiplist, storage, etc.)
-├── src/
-│   ├── utils/                       # Slice, Status, coding utilities
-│   ├── storage/                     # MemTable, WAL, SSTable, Compactor, QueryTracer, DBImpl
-│   ├── network/                     # TCP Socket Server & Command Parser
-│   └── raft/                        # Raft Node State Machine & Consensus RPCs
-├── tests/                           # Unit tests for all core components
-└── benchmarks/                      # db_bench benchmark binary
-```
-
----
-
-## 🛠️ Building & Running
-
-### Prerequisites
-- Modern C++ Compiler (GCC 10+ or Clang 12+ supporting C++17)
-- [Bazel](https://bazel.build/) 6.0+
-
-### Build All Targets
 ```bash
 bazel build //...
+bazel test //:memtable_test //:wal_test //:sstable_test //:db_test //:server_test //:cluster_test
 ```
 
-### Run Unit Tests
+## Run a node
+
 ```bash
-bazel test //tests/...
+bazel run //:focuskv_node -- --port=7001 --data=/tmp/focuskv_n1
 ```
 
-### Run Benchmarks
+Run more nodes on different ports and data dirs if you want multiple independent servers.
+
+## Client commands
+
 ```bash
-bazel run -c opt //benchmarks:db_bench
+nc localhost 7001
+SET user:1 Ayush Lohumi
+GET user:1
+DEL user:1
 ```
 
----
+### Responses
 
-## 💻 C++ API Usage Example
+| Command | Success | Failure |
+|---|---|---|
+| SET | `+OK\r\n` | `-ERR ...\r\n` |
+| GET | `$<len>\r\n<value>\r\n` | `-ERR key not found\r\n` |
+| DEL | `:1\r\n` | `:0\r\n` |
 
-```cpp
-#include <iostream>
-#include "src/storage/db.h"
+Writes and reads go directly to that node's local database.
 
-int main() {
-    focuskv::DB* db = nullptr;
-    focuskv::Options options;
-    options.create_if_missing = true;
+## Options
 
-    // 1. Open Database
-    focuskv::Status s = focuskv::DB::Open(options, "/tmp/focuskv_demo", &db);
-    if (!s.ok()) {
-        std::cerr << "Failed to open DB: " << s.ToString() << std::endl;
-        return 1;
-    }
+| Option | Default | Purpose |
+|---|---|---|
+| `write_buffer_size` | 4 MB | MemTable size before flush to SST |
+| `wal_sync_every` | 32 | Group commit — fsync WAL every N writes |
 
-    // 2. Put Key-Value
-    db->Put("user:100", "Ayush");
+Set `wal_sync_every = 1` for fsync on every write (safest, slowest). On close and flush, the WAL is always synced regardless of this setting.
 
-    // 3. Get Key-Value
-    std::string val;
-    s = db->Get("user:100", &val);
-    if (s.ok()) {
-        std::cout << "Retrieved: " << val << std::endl; // Output: Ayush
-    }
+## On-disk files (per node data dir)
 
-    // 4. Trace Key Lookup Path (LSM Query Inspector)
-    focuskv::ExecutionTrace trace;
-    db->TraceGet("user:100", &trace);
-    std::cout << "Total latency: " << trace.total_latency_us << " us" << std::endl;
+| File | Purpose |
+|---|---|
+| `wal.log` | Write-ahead log |
+| `MANIFEST` | SSTable list + sequence metadata |
+| `*.sst` | Flushed sorted tables (includes a bloom filter) |
 
-    delete db;
-    return 0;
-}
+## Layout
+
+```
+src/storage/   DB, WAL, MemTable, SSTable, bloom filter, manifest
+src/network/   TCP server
+cmd/           focuskv_node binary
+tests/         unit + integration tests
 ```
 
----
+## Verification
 
-## 📜 License
+| Test | What it proves |
+|---|---|
+| `memtable_test` | In-memory put/get/delete and overwrite |
+| `wal_test` | WAL append + replay after restart |
+| `sstable_test` | SST build, bloom filter, and point lookup |
+| `db_test` | Full storage stack; memtable flush to SST |
+| `server_test` | TCP `SET`/`GET`/`DEL` over socket |
+| `cluster_test.IndependentNodesDoNotShareData` | Three nodes run independently; data on one is not visible on others |
 
-Distributed under the MIT License.
+## License
+
+MIT

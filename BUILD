@@ -52,11 +52,22 @@ cc_library(
 cc_library(
     name = "sstable",
     srcs = ["src/storage/sstable.cc"],
-    hdrs = ["src/storage/sstable.h"],
+    hdrs = [
+        "src/storage/bloom_filter.h",
+        "src/storage/sstable.h",
+    ],
     deps = [
         ":memtable",
         ":utils",
     ],
+    visibility = ["//visibility:public"],
+)
+
+cc_library(
+    name = "manifest",
+    srcs = ["src/storage/manifest.cc"],
+    hdrs = ["src/storage/manifest.h"],
+    deps = [":utils"],
     visibility = ["//visibility:public"],
 )
 
@@ -66,9 +77,9 @@ cc_library(
     hdrs = [
         "src/storage/db.h",
         "src/storage/db_impl.h",
-        "src/storage/query_tracer.h",
     ],
     deps = [
+        ":manifest",
         ":memtable",
         ":sstable",
         ":utils",
@@ -81,17 +92,6 @@ cc_library(
     name = "server",
     srcs = ["src/network/server.cc"],
     hdrs = ["src/network/server.h"],
-    deps = [
-        ":db",
-        ":utils",
-    ],
-    visibility = ["//visibility:public"],
-)
-
-cc_library(
-    name = "raft",
-    srcs = ["src/raft/raft_node.cc"],
-    hdrs = ["src/raft/raft_node.h"],
     deps = [
         ":db",
         ":utils",
@@ -136,6 +136,15 @@ cc_test(
 )
 
 cc_test(
+    name = "db_edge_test",
+    srcs = ["tests/db_edge_test.cc"],
+    deps = [
+        ":db",
+        ":utils",
+    ],
+)
+
+cc_test(
     name = "server_test",
     srcs = ["tests/server_test.cc"],
     deps = [
@@ -145,19 +154,20 @@ cc_test(
 )
 
 cc_test(
-    name = "raft_test",
-    srcs = ["tests/raft_test.cc"],
+    name = "cluster_test",
+    srcs = ["tests/cluster_test.cc"],
     deps = [
-        ":raft",
+        ":server",
         ":utils",
     ],
 )
 
 cc_binary(
-    name = "db_bench",
-    srcs = ["benchmarks/db_bench.cc"],
+    name = "focuskv_node",
+    srcs = ["cmd/focuskv_node.cc"],
     deps = [
         ":db",
+        ":server",
         ":utils",
     ],
 )

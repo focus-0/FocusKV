@@ -3,13 +3,16 @@
 #include <fstream>
 #include <string>
 #include <vector>
+
+#include "src/storage/bloom_filter.h"
 #include "src/storage/memtable.h"
 #include "src/utils/slice.h"
 #include "src/utils/status.h"
 
 namespace focuskv {
 
-static const uint64_t kSSTableMagicNumber = 0x666f6375736b7631ULL; // "focuskv1"
+static const uint64_t kSSTableMagicNumber = 0x666f6375736b7631ULL;  // "focuskv1"
+static const size_t kSSTableFooterSize = 40;
 
 struct BlockIndexEntry {
   std::string last_key;
@@ -34,6 +37,8 @@ class SSTableBuilder {
   std::string current_block_;
   std::string last_key_in_block_;
   std::vector<BlockIndexEntry> index_entries_;
+  BloomFilter bloom_;
+  size_t key_count_{0};
   uint64_t file_size_{0};
   static const size_t kBlockSizeThreshold = 4096;
 };
@@ -48,10 +53,12 @@ class SSTableReader {
  private:
   SSTableReader(const std::string& filename, uint64_t index_offset, uint64_t index_size);
   Status ReadIndex(uint64_t index_offset, uint64_t index_size);
+  Status ReadBloom(uint64_t bloom_offset, uint64_t bloom_size);
 
   std::ifstream file_;
   std::string filename_;
   std::vector<BlockIndexEntry> index_entries_;
+  BloomFilter bloom_;
 };
 
 }  // namespace focuskv

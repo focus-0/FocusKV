@@ -6,7 +6,6 @@
 #include <unistd.h>
 
 #include <cstring>
-#include <iostream>
 #include <sstream>
 
 namespace focuskv {
@@ -85,7 +84,11 @@ void Server::HandleClient(int client_fd) {
 
     std::string response;
     if (cmd == "SET") {
-      iss >> key >> val;
+      iss >> key;
+      std::getline(iss, val);
+      if (!val.empty() && val[0] == ' ') {
+        val.erase(0, 1);
+      }
       Status s = db_->Put(key, val);
       response = s.ok() ? "+OK\r\n" : "-ERR " + s.ToString() + "\r\n";
     } else if (cmd == "GET") {
@@ -101,15 +104,6 @@ void Server::HandleClient(int client_fd) {
       iss >> key;
       Status s = db_->Delete(key);
       response = s.ok() ? ":1\r\n" : ":0\r\n";
-    } else if (cmd == "TRACE") {
-      iss >> key;
-      ExecutionTrace trace;
-      Status s = db_->TraceGet(key, &trace);
-      std::ostringstream trace_ss;
-      trace_ss << "{" << "\"key\":\"" << trace.key << "\","
-               << "\"found\":" << (trace.found ? "true" : "false") << ","
-               << "\"latency_us\":" << trace.total_latency_us << "}\r\n";
-      response = trace_ss.str();
     } else {
       response = "-ERR unknown command\r\n";
     }

@@ -1,20 +1,39 @@
 #include "src/storage/wal.h"
+
 #include "src/utils/coding.h"
+
+#include <fcntl.h>
+#include <unistd.h>
 
 namespace focuskv {
 
-WALWriter::WALWriter(const std::string& filename)
-    : file_(filename, std::ios::binary | std::ios::app | std::ios::out),
-      filename_(filename) {}
+WALWriter::WALWriter(const std::string& filename, size_t sync_every)
+    : filename_(filename), sync_every_(sync_every > 0 ? sync_every : 1) {
+  fd_ = ::open(filename_.c_str(), O_CREAT | O_RDWR | O_APPEND, 0644);
+}
 
 WALWriter::~WALWriter() {
-  if (file_.is_open()) {
-    file_.close();
+  if (fd_ >= 0) {
+    Sync();
+    ::close(fd_);
+    fd_ = -1;
   }
 }
 
+Status WALWriter::WriteAll(const char* data, size_t len) {
+  while (len > 0) {
+    ssize_t n = ::write(fd_, data, len);
+    if (n < 0) {
+      return Status::IOError("WAL write failed");
+    }
+    data += n;
+    len -= static_cast<size_t>(n);
+  }
+  return Status::OK();
+}
+
 Status WALWriter::AddRecord(uint64_t seq, ValueType type, const Slice& key, const Slice& value) {
-  if (!file_.is_open()) {
+  if (fd_ < 0) {
     return Status::IOError("WAL file is not open");
   }
 
@@ -24,21 +43,44 @@ Status WALWriter::AddRecord(uint64_t seq, ValueType type, const Slice& key, cons
   PutLengthPrefixedSlice(&record, key);
   PutLengthPrefixedSlice(&record, value);
 
-  uint32_t record_len = static_cast<uint32_t>(record.size());
   std::string header;
-  PutFixed32(&header, record_len);
+  PutFixed32(&header, static_cast<uint32_t>(record.size()));
 
-  file_.write(header.data(), header.size());
-  file_.write(record.data(), record.size());
+  Status s = WriteAll(header.data(), header.size());
+  if (!s.ok()) return s;
+  s = WriteAll(record.data(), record.size());
+  if (!s.ok()) return s;
 
+  writes_since_sync_++;
+  if (writes_since_sync_ >= sync_every_) {
+    return Sync();
+  }
   return Status::OK();
 }
 
 Status WALWriter::Sync() {
-  if (!file_.is_open()) {
+  if (fd_ < 0) {
     return Status::IOError("WAL file is not open");
   }
-  file_.flush();
+  writes_since_sync_ = 0;
+  if (::fsync(fd_) != 0) {
+    return Status::IOError("WAL fsync failed");
+  }
+  return Status::OK();
+}
+
+Status WALWriter::Reset() {
+  if (fd_ >= 0) {
+    Sync();
+    ::close(fd_);
+    fd_ = -1;
+  }
+  std::remove(filename_.c_str());
+  fd_ = ::open(filename_.c_str(), O_CREAT | O_RDWR | O_TRUNC, 0644);
+  if (fd_ < 0) {
+    return Status::IOError("Failed to reset WAL");
+  }
+  writes_since_sync_ = 0;
   return Status::OK();
 }
 
@@ -53,7 +95,10 @@ WALReader::~WALReader() {
 
 Status WALReader::Replay(MemTable* memtable, uint64_t* max_seq) {
   if (!file_.is_open()) {
-    return Status::IOError("WAL file cannot be opened for reading");
+    if (max_seq != nullptr) {
+      *max_seq = 0;
+    }
+    return Status::OK();
   }
 
   uint64_t highest_seq = 0;
@@ -61,7 +106,7 @@ Status WALReader::Replay(MemTable* memtable, uint64_t* max_seq) {
     char header_buf[4];
     file_.read(header_buf, sizeof(header_buf));
     if (file_.gcount() < static_cast<std::streamsize>(sizeof(header_buf))) {
-      break; // Clean EOF
+      break;
     }
 
     uint32_t record_len = DecodeFixed32(header_buf);
@@ -70,7 +115,7 @@ Status WALReader::Replay(MemTable* memtable, uint64_t* max_seq) {
     file_.read(&record_buf[0], record_len);
 
     if (file_.gcount() < static_cast<std::streamsize>(record_len)) {
-      break; // Incomplete tail record (crash mid-write), stop replay gracefully
+      break;
     }
 
     Slice input(record_buf);

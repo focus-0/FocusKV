@@ -45,23 +45,15 @@ TEST(ServerTest, NetworkSocketCommands) {
   Server server(db, 9876);
   EXPECT_TRUE(server.Start().ok());
 
-  // 1. SET command over TCP
   std::string resp = SendSocketCommand(9876, "SET user:10 Ayush\n");
   EXPECT_EQ(resp, std::string("+OK\r\n"));
 
-  // 2. GET command over TCP
   resp = SendSocketCommand(9876, "GET user:10\n");
   EXPECT_EQ(resp, std::string("$5\r\nAyush\r\n"));
 
-  // 3. TRACE command over TCP
-  resp = SendSocketCommand(9876, "TRACE user:10\n");
-  EXPECT_TRUE(resp.find("\"found\":true") != std::string::npos);
-
-  // 4. DEL command over TCP
   resp = SendSocketCommand(9876, "DEL user:10\n");
   EXPECT_EQ(resp, std::string(":1\r\n"));
 
-  // GET after DEL
   resp = SendSocketCommand(9876, "GET user:10\n");
   EXPECT_EQ(resp, std::string("-ERR key not found\r\n"));
 

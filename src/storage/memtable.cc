@@ -76,8 +76,8 @@ bool MemTable::Get(const Slice& key, std::string* value, Status* status) {
   size_t key_size = key.size();
   size_t internal_key_size = key_size + 8;
 
-  // Allocate lookup buffer
-  std::string lookup_buf;
+  thread_local std::string lookup_buf;
+  lookup_buf.clear();
   PutFixed32(&lookup_buf, static_cast<uint32_t>(internal_key_size));
   lookup_buf.append(key.data(), key_size);
   uint64_t max_packed = (0x00FFFFFFFFFFFFFFULL << 8) | static_cast<uint8_t>(kTypeValue);
@@ -108,6 +108,26 @@ bool MemTable::Get(const Slice& key, std::string* value, Status* status) {
     }
   }
   return false;
+}
+
+void MemTable::Iterate(
+    const std::function<void(const Slice&, const Slice&, ValueType)>& fn) const {
+  SkipList<const char*, KeyComparator>::Iterator iter(&table_);
+  iter.SeekToFirst();
+  while (iter.Valid()) {
+    const char* entry = iter.key();
+    Slice internal_key;
+    const char* val_ptr = GetLengthPrefixedSliceData(entry, &internal_key);
+
+    Slice user_key(internal_key.data(), internal_key.size() - 8);
+    uint64_t tag = DecodeFixed64(internal_key.data() + internal_key.size() - 8);
+    ValueType type = static_cast<ValueType>(tag & 0xff);
+
+    Slice val;
+    GetLengthPrefixedSliceData(val_ptr, &val);
+    fn(user_key, val, type);
+    iter.Next();
+  }
 }
 
 }  // namespace focuskv

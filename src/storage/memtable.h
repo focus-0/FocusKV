@@ -1,6 +1,7 @@
 #pragma once
 
 #include <atomic>
+#include <functional>
 #include <string>
 #include "src/storage/arena.h"
 #include "src/storage/skiplist.h"
@@ -32,6 +33,7 @@ class MemTable {
 
   void Add(uint64_t seq, ValueType type, const Slice& key, const Slice& value);
   bool Get(const Slice& key, std::string* value, Status* status);
+  void Iterate(const std::function<void(const Slice&, const Slice&, ValueType)>& fn) const;
 
   size_t ApproximateMemoryUsage() const { return arena_.MemoryUsage(); }
 

@@ -13,11 +13,9 @@ TEST(DBTest, BasicPutGetDelete) {
   Options options;
   options.create_if_missing = true;
 
-  // 1. Open DB
   EXPECT_TRUE(DB::Open(options, db_path, &db).ok());
   EXPECT_TRUE(db != nullptr);
 
-  // 2. Put & Get
   EXPECT_TRUE(db->Put("user:1", "Ayush").ok());
   EXPECT_TRUE(db->Put("user:2", "Lohumi").ok());
 
@@ -28,22 +26,11 @@ TEST(DBTest, BasicPutGetDelete) {
   EXPECT_TRUE(db->Get("user:2", &val).ok());
   EXPECT_EQ(val, std::string("Lohumi"));
 
-  // 3. TraceGet (Query Inspector Novelty Feature)
-  ExecutionTrace trace;
-  EXPECT_TRUE(db->TraceGet("user:1", &trace).ok());
-  EXPECT_TRUE(trace.found);
-  EXPECT_EQ(trace.value, std::string("Ayush"));
-  EXPECT_TRUE(!trace.steps.empty());
-  EXPECT_EQ(trace.steps[0].stage, std::string("ActiveMemTable"));
-  EXPECT_TRUE(trace.steps[0].hit);
-
-  // 4. Delete
   EXPECT_TRUE(db->Delete("user:1").ok());
   EXPECT_TRUE(db->Get("user:1", &val).IsNotFound());
 
   delete db;
 
-  // 5. Reopen DB and verify WAL crash recovery
   DB* reopened_db = nullptr;
   EXPECT_TRUE(DB::Open(options, db_path, &reopened_db).ok());
 
@@ -52,6 +39,34 @@ TEST(DBTest, BasicPutGetDelete) {
   EXPECT_EQ(val, std::string("Lohumi"));
 
   delete reopened_db;
+  system(("rm -rf " + db_path).c_str());
+}
+
+TEST(DBTest, MemTableFlushToSSTable) {
+  std::string db_path = "/tmp/focuskv_flush_db";
+  system(("rm -rf " + db_path).c_str());
+
+  DB* db = nullptr;
+  Options options;
+  options.create_if_missing = true;
+  options.write_buffer_size = 256;
+
+  EXPECT_TRUE(DB::Open(options, db_path, &db).ok());
+  for (int i = 0; i < 100; ++i) {
+    std::string key = "flush_key_" + std::to_string(i);
+    std::string val = "flush_val_" + std::to_string(i);
+    EXPECT_TRUE(db->Put(key, val).ok());
+  }
+
+  delete db;
+
+  DB* reopened = nullptr;
+  EXPECT_TRUE(DB::Open(options, db_path, &reopened).ok());
+  std::string val;
+  EXPECT_TRUE(reopened->Get("flush_key_50", &val).ok());
+  EXPECT_EQ(val, std::string("flush_val_50"));
+
+  delete reopened;
   system(("rm -rf " + db_path).c_str());
 }
 

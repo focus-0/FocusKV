@@ -1,7 +1,6 @@
 #pragma once
 
-#include <chrono>
-#include <mutex>
+#include <shared_mutex>
 #include <string>
 #include <vector>
 
@@ -23,15 +22,15 @@ class DBImpl : public DB {
   Status Get(const Slice& key, std::string* value) override;
   Status Delete(const Slice& key) override;
 
-  Status TraceGet(const Slice& key, ExecutionTrace* trace) override;
-
  private:
   Status WriteRecord(ValueType type, const Slice& key, const Slice& value);
   Status FlushMemTable();
+  Status LoadSSTables();
+  Status SaveCurrentManifest();
 
   Options options_;
   std::string dbname_;
-  std::mutex mutex_;
+  std::shared_mutex mutex_;
 
   uint64_t seq_{0};
   MemTable* mem_{nullptr};
